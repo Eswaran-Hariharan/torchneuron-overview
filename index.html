@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TorchNeuron — Native PyTorch on AWS Trainium</title>
+  <meta name="description" content="TorchNeuron: a native PyTorch backend for AWS Trainium. What's new, the benefits, and views for developers and architects, with sourced references." />
+  <script>(function(){ try { if (localStorage.getItem('tn-theme') === 'dark') document.documentElement.classList.add('dark'); } catch(e){} })();</script>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="progress" id="progress"></div>
+
+  <header class="hero">
+    <div class="hero-inner">
+      <button class="theme-btn" id="themeBtn" aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
+      <p class="eyebrow">AWS Neuron · PyTorch · Public beta Oct 20, 2026</p>
+      <h1>TorchNeuron</h1>
+      <p class="lede">A native PyTorch backend for AWS Trainium. Run the PyTorch code you already
+        write on Trainium2 and Trainium3 — eager mode, <code>torch.compile</code>, and native
+        distributed APIs — with a single configuration change and no rewrite.</p>
+      <div class="hero-badges">
+        <span class="badge">Apache 2.0 (open source)</span>
+        <span class="badge">pip install torch-neuronx</span>
+        <span class="badge">Trainium2 &amp; Trainium3</span>
+        <span class="badge">device_map="neuron"</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="toc" id="toc" aria-label="Contents">
+      <h3>Contents</h3>
+      <ul>
+        <li><a href="#what">What is TorchNeuron</a></li>
+        <li><a href="#whatsnew">What's new</a></li>
+        <li><a href="#benefits">Benefits</a></li>
+        <li><a href="#developer">Developer view</a></li>
+        <li><a href="#architect">Architect view</a></li>
+        <li><a href="#migration">Migration from torch-neuronx (XLA)</a></li>
+        <li><a href="#limits">Limits &amp; gotchas</a></li>
+        <li><a href="#sources">Sources</a></li>
+      </ul>
+    </aside>
+
+    <main class="content">
+      <article class="wrap">
+
+        <section id="what">
+          <h2>What is TorchNeuron</h2>
+          <p>TorchNeuron is a PyTorch plugin that registers <strong>Neuron as a native PyTorch
+            device</strong>. Instead of treating Trainium as a compiler target you hand a static
+            graph to, your model sees <code>neuron</code> as just another accelerator — much like
+            <code>cuda</code> or <code>cpu</code>.</p>
+          <p>It plugs into PyTorch's standard mechanism for registering new hardware (the
+            PrivateUse1 / out-of-tree backend path), so the tools developers already use to test,
+            debug, and scale models work on Trainium without modification.</p>
+          <div class="callout">
+            <strong>In one line:</strong> TorchNeuron turns "port your model to the chip" into
+            "point your model at the chip."
+          </div>
+          <p>It is announced for <strong>public beta on October 20, 2026</strong> at the PyTorch
+            Conference North America, released under the <strong>Apache 2.0</strong> license, and
+            supports <strong>Trainium2 and Trainium3</strong>.</p>
+        </section>
+
+        <section id="whatsnew">
+          <h2>What's new</h2>
+          <p>The key change is the execution model. The previous PyTorch path on Trainium
+            (<code>torch-neuronx</code>) was built on <strong>PyTorch/XLA</strong>: lazy tensors,
+            static shapes only, and a recompilation on every graph break. You had to "think like a
+            compiler." TorchNeuron replaces that with a native backend.</p>
+          <table class="cmp">
+            <thead>
+              <tr><th>Capability</th><th>torch-neuronx (XLA, prior)</th><th>TorchNeuron (new)</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Execution model</td><td>Lazy tensors (XLA)</td><td>Native <strong>eager mode</strong> execution</td></tr>
+              <tr><td>Compilation</td><td>Graph compiled via XLA/HLO</td><td><code>torch.compile</code> with a Neuron backend</td></tr>
+              <tr><td>Device interface</td><td>XLA device abstraction</td><td><code>neuron</code> as a first-class PyTorch device</td></tr>
+              <tr><td>Distributed training</td><td>Neuron-specific wrappers</td><td>Native <strong>DTensor, FSDP2, TP</strong>; TorchTitan integration</td></tr>
+              <tr><td>Debugging</td><td>Compiler-style, harder to inspect</td><td>Standard PyTorch tooling works</td></tr>
+              <tr><td>HF libraries</td><td>Via <code>optimum-neuron</code> fork/abstraction</td><td>Native: Transformers, Diffusers, Accelerate, PEFT, TRL</td></tr>
+            </tbody>
+          </table>
+          <p>Other notable pieces shipping alongside it:</p>
+          <ul>
+            <li><strong>Upstream PyTorch contributions</strong> to make the framework more
+              hardware-agnostic (removing chip-specific code), benefiting all backends, not just Trainium.</li>
+            <li><strong>Hugging Face native support</strong> — Transformers, Diffusers, Accelerate,
+              PEFT and TRL run on Trainium directly, with Neuron recommended over Optimum Neuron for supported workflows.</li>
+            <li><strong>TorchTitan integration</strong> for distributed training with FSDP.</li>
+            <li><strong>Open-sourced performance kernels</strong> and a contribution to
+              <strong>vLLM</strong> for inference.</li>
+            <li><strong>Custom kernels via NKI</strong> (Neuron Kernel Interface) that can be shared on the HF Hub.</li>
+          </ul>
+        </section>
+
+        <section id="benefits">
+          <h2>What benefit do we get</h2>
+          <div class="cards">
+            <div class="card">
+              <h4>No rewrite</h4>
+              <p>Existing PyTorch training/inference runs on Trainium with a single configuration
+                change — the setting that tells the code which device to use.</p>
+            </div>
+            <div class="card">
+              <h4>Engineering time saved</h4>
+              <p>The most expensive line item in AI is often engineering time, not chips. Removing
+                the port-and-revalidate cycle frees that time for the product.</p>
+            </div>
+            <div class="card">
+              <h4>Fleet flexibility</h4>
+              <p>Same hardware for training and inference. Off-peak inference capacity can shift to
+                training jobs instead of leaving specialized hardware idle.</p>
+            </div>
+            <div class="card">
+              <h4>Hardware choice</h4>
+              <p>Moving between chips without a software penalty gives real portability and reduces
+                lock-in to any single accelerator ecosystem.</p>
+            </div>
+            <div class="card">
+              <h4>Familiar tooling</h4>
+              <p>Eager debugging, <code>torch.compile</code>, DTensor/FSDP2, torchrun, and the HF
+                stack all work the way they do elsewhere.</p>
+            </div>
+            <div class="card">
+              <h4>Broader model coverage</h4>
+              <p>Per Hugging Face, 89% of the top-100 text-generation architectures work out of the
+                box, up from 46% with Optimum Neuron v0.4.5.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="developer">
+          <h2>Developer view</h2>
+          <p>Day-to-day, Trainium becomes "a device like any other." Install the plugin, import it,
+            and target the <code>neuron</code> device.</p>
+
+          <h3>Install</h3>
+          <pre><code class="language-bash">pip install torch-neuronx   # public beta from Oct 20, 2026</code></pre>
+
+          <h3>Inference — text generation with tensor parallelism</h3>
+          <p>Note the two Neuron-friendly habits: a <strong>static cache</strong> and a
+            <strong>non-dynamic</strong> <code>torch.compile</code> config, both to avoid frequent
+            recompilations.</p>
+          <pre><code class="language-python">import torch
+import torch.distributed as dist
+import torch_neuronx  # registers the neuron device
+from torch.distributed import DeviceMesh
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from transformers.distributed import DistributedConfig
+from transformers.generation.configuration_utils import CompileConfig
+
+dist.init_process_group(backend="neuron")
+world_size = dist.get_world_size()
+
+model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen3-8B",
+    dtype=torch.bfloat16,
+    distributed_config=DistributedConfig(tp_size=world_size),
+    device_mesh=DeviceMesh("neuron", list(range(world_size))),
+).eval()
+
+generation_config = GenerationConfig(
+    max_new_tokens=128,
+    cache_implementation="static",          # recommended on Neuron
+    compile_config=CompileConfig(backend="neuron", fullgraph=False, dynamic=False),
+)
+# ... tokenize, then model.generate(..., generation_config=generation_config)</code></pre>
+
+          <h3>Training — standard TRL SFT, nothing Trainium-specific in the model code</h3>
+          <pre><code class="language-python">import torch
+from trl import SFTTrainer, SFTConfig, ModelConfig, ScriptArguments, TrlParser
+
+# Neuron can't compile Dynamo's automatic dynamic shapes yet:
+torch._dynamo.config.automatic_dynamic_shapes = False
+
+trainer = SFTTrainer(model="Qwen/Qwen3-8B", args=training_args, train_dataset=ds)
+trainer.train()
+trainer.save_model(out_dir)   # a standard Transformers checkpoint, portable anywhere</code></pre>
+          <pre><code class="language-bash"># 4 (TP) x 8 (FSDP) = 32 processes, one per NeuronCore
+TP_SIZE=4 FSDP_SIZE=8 HF_DEACTIVATE_ASYNC_LOAD=1 \
+  torchrun --nproc_per_node=32 sft_neuron_example.py \
+  --model_name_or_path Qwen/Qwen3-8B --torch_compile true --dtype bfloat16 ...</code></pre>
+          <p class="note">The checkpoint it writes is not tied to Neuron — push it to the HF Hub
+            and load it on any hardware.</p>
+
+          <h3>What a developer should internalize</h3>
+          <ul>
+            <li><strong>Static shapes matter.</strong> Pad to a fixed multiple (e.g. 128 tokens) so
+              compiled graphs are reused across steps.</li>
+            <li><strong><code>torch.compile</code> auto-selects the Neuron backend</strong> on a
+              Trainium instance — just pass <code>--torch_compile true</code>.</li>
+            <li><strong>Async weight loading is off</strong> for now (<code>HF_DEACTIVATE_ASYNC_LOAD=1</code>).</li>
+            <li><strong><code>torchrun</code> starts one process per NeuronCore</strong>; TP × FSDP
+              product equals <code>--nproc_per_node</code>.</li>
+          </ul>
+        </section>
+
+        <section id="architect">
+          <h2>Architect view</h2>
+          <p>At the platform level, TorchNeuron changes the trade-offs around standardizing on
+            Trainium.</p>
+
+          <h3>Where it sits</h3>
+          <div class="stack">
+            <div class="layer l1">Your code · HF Transformers / Diffusers / TRL / PEFT · vLLM</div>
+            <div class="layer l2">PyTorch (eager + torch.compile, DTensor / FSDP2 / TP) · TorchTitan</div>
+            <div class="layer l3">TorchNeuron backend — <code>neuron</code> device (PyTorch out-of-tree backend)</div>
+            <div class="layer l4">Neuron compiler + runtime · NKI custom kernels</div>
+            <div class="layer l5">AWS Trainium2 / Trainium3 (Trn2 / Trn2 UltraServer, Trn3) NeuronCores</div>
+          </div>
+
+          <h3>Architecture implications</h3>
+          <ul>
+            <li><strong>Unified fleet.</strong> One accelerator type covers both training and
+              inference, enabling time-of-day capacity shifting and higher utilization.</li>
+            <li><strong>Portability as a strategy.</strong> Because models stay in standard PyTorch,
+              you keep the option to move between accelerators; reduces single-vendor lock-in.</li>
+            <li><strong>Scaling path.</strong> FSDP2 + tensor parallelism via native PyTorch and
+              TorchTitan; parallelism layout is a runtime config (TP_SIZE × FSDP_SIZE), not a code fork.</li>
+            <li><strong>Quality signal.</strong> Amazon states it tests TorchNeuron against hundreds
+              of thousands of models on every build — relevant when assessing beta maturity.</li>
+            <li><strong>Inference serving.</strong> The vLLM contribution plus Neuron support gives a
+              standard high-throughput serving path rather than a bespoke stack.</li>
+            <li><strong>Extensibility.</strong> Performance-critical ops can drop to NKI kernels
+              (reported up to ~2.4× speedup on vision transformers) without leaving the ecosystem.</li>
+          </ul>
+
+          <div class="callout">
+            <strong>Decision lens:</strong> evaluate on (1) model-architecture coverage for your
+            workloads, (2) tolerance for static-shape constraints, (3) beta status for production
+            SLAs, and (4) the cost delta of Trainium vs. your current accelerator over a full
+            train+serve lifecycle.
+          </div>
+        </section>
+
+        <section id="migration">
+          <h2>Migration from torch-neuronx (XLA)</h2>
+          <p>Note the naming overlap: the <em>pip package</em> is still <code>torch-neuronx</code>,
+            but TorchNeuron is the new <em>native backend</em> behind it, as opposed to the older
+            XLA-based integration. Practical shifts when moving off the XLA path / Optimum Neuron:</p>
+          <ul>
+            <li>Drop <code>optimum-neuron</code> custom trainers/model forks for supported workflows;
+              use upstream Transformers/TRL/Accelerate/PEFT directly.</li>
+            <li>Replace lazy-tensor mental model with eager + <code>torch.compile</code>.</li>
+            <li>Use <code>device_map="neuron"</code> / a <code>DeviceMesh("neuron", ...)</code> instead
+              of XLA device handling.</li>
+            <li>Keep shapes static (padding to fixed multiples) and prefer a static KV cache for generation.</li>
+          </ul>
+        </section>
+
+        <section id="limits">
+          <h2>Limits &amp; gotchas (as of the beta)</h2>
+          <ul>
+            <li><strong>Public beta</strong> — validate before production-critical SLAs.</li>
+            <li><strong>Dynamic shapes</strong> are limited; Dynamo automatic dynamic shapes aren't
+              compilable yet, so disable them and pad inputs.</li>
+            <li><strong>Hardware coverage</strong> is Trainium2 / Trainium3; not every model or
+              Diffusers pipeline supports tensor parallelism yet.</li>
+            <li><strong>Async weight loading</strong> in Transformers is unsupported for now.</li>
+            <li>Text encoders in some diffusion pipelines may need to <strong>stay on CPU</strong>.</li>
+          </ul>
+          <p class="note">Facts on this page were summarized and rephrased from the sources below for
+            licensing compliance. Verify version-specific details against the official docs before relying on them.</p>
+        </section>
+
+        <section id="sources">
+          <h2>Sources &amp; further reading</h2>
+          <ul class="sources">
+            <li><a href="https://www.aboutamazon.com/news/innovation-at-amazon/torchneuron-pytorch-aws-trainium-chips-ai" target="_blank" rel="noopener">About Amazon — TorchNeuron runs PyTorch on AWS Trainium chips</a> (announcement: Apache 2.0, Oct 20, Trainium2/3, early adopters).</li>
+            <li><a href="https://huggingface.co/blog/hf-torchneuron" target="_blank" rel="noopener">Hugging Face blog — Running HF models on AWS Trainium is easier than ever</a> (native backend, eager/compile/FSDP, code samples, 89% vs 46% coverage).</li>
+            <li><a href="https://aws.amazon.com/ai/machine-learning/neuron" target="_blank" rel="noopener">AWS — Neuron SDK for Gen AI and Deep Learning</a> (eager mode, FSDP/DDP/DTensor).</li>
+            <li><a href="https://awsdocs-neuron.readthedocs-hosted.com/en/latest/frameworks/torch/index.html" target="_blank" rel="noopener">AWS Neuron Documentation — PyTorch Support on Neuron</a> (torch-neuronx, NeuronCores, setup).</li>
+            <li><a href="https://awsdocs-neuron.readthedocs-hosted.com/en/latest/setup/pytorch/index.html" target="_blank" rel="noopener">AWS Neuron Documentation — Install PyTorch for Neuron</a>.</li>
+          </ul>
+          <p class="note">Content was rephrased for compliance with licensing restrictions.</p>
+        </section>
+
+      </article>
+      <footer>TorchNeuron overview · Built for developer &amp; architect review · Rendered client-side.</footer>
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>
+    // Theme toggle
+    const themeBtn = document.getElementById('themeBtn');
+    const syncTheme = () => { themeBtn.textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙'; };
+    syncTheme();
+    themeBtn.addEventListener('click', () => {
+      const dark = document.documentElement.classList.toggle('dark');
+      try { localStorage.setItem('tn-theme', dark ? 'dark' : 'light'); } catch(e){}
+      syncTheme();
+    });
+    // Progress bar
+    const bar = document.getElementById('progress');
+    const onScroll = () => { const h = document.documentElement; const max = h.scrollHeight - h.clientHeight; bar.style.width = max > 0 ? (h.scrollTop/max*100)+'%' : '0%'; };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    // Highlight code
+    try { hljs.highlightAll(); } catch(e){}
+  </script>
+</body>
+</html>
